@@ -181,7 +181,7 @@ public class Sport extends Spider {
         if (ids.get(0).equals(siteUrl)) return Result.error("比赛尚未开始");
         String base = ids.get(0);
         if (base.startsWith(bdUrl)){
-            WebViewUtil.openHtml(base);
+            WebViewUtil.openHtml(base, null, true);
             Vod vod = new Vod();
             vod.setVodId(base);
             return Result.string(vod);
@@ -216,7 +216,7 @@ public class Sport extends Spider {
     private void updateSiteUrl() {
         try {
 
-            String html = OkHttp.string("http://www.88kq.net", getHeader());
+            String html = OkHttp.string("http://www.88kq.org", getHeader());
             Elements aTags = Jsoup.parse(html).select("div.site a[href]");
 
             List<String> urls = new ArrayList<>();
@@ -235,7 +235,7 @@ public class Sport extends Spider {
             if (!TextUtils.isEmpty(fastest)) {
                 siteUrl = fastest;
             } else {
-                Notify.show("site-url not found.");
+                Notify.show("site-url not found." + urls.size());
             }
 
         } catch (Exception e) {

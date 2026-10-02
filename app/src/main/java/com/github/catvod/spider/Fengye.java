@@ -9,7 +9,7 @@ import com.github.catvod.crawler.Spider;
 import com.github.catvod.net.OkHttp;
 import com.github.catvod.utils.AZ4;
 import com.github.catvod.utils.Notify;
-import com.github.catvod.utils.Sub;
+import com.github.catvod.utils.WebViewUtil;
 
 import org.json.JSONException;
 import org.jsoup.Jsoup;
@@ -23,6 +23,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicReference;
@@ -37,13 +38,13 @@ public class Fengye extends Spider {
     private static String siteUrl;
     private static Set<String> domains = new HashSet<>();
     private static String searchApi = "";
+    private Map<String, String> header = new HashMap<>();
     AtomicReference<String> keyword = new AtomicReference<>();
 
     @Override
     public void init(Context context, String extend) {
         if (!extend.isEmpty()) siteUrl = extend;
         updateSiteUrl();
-        Sub.startHookMonitor();
     }
 
     @Override
@@ -52,12 +53,6 @@ public class Fengye extends Spider {
         list.add(new Vod("search", "仅支持搜索", "", "", true));
         for (String domain : domains) {
             list.add(new Vod("config", domain, "", "", "config|" + domain));
-        }
-        String html = OkHttp.string(siteUrl);
-        Elements forms = Jsoup.parse(html).select("form");
-        String[] actions = forms.first().attr("action").split("/");
-        if (actions.length > 1) {
-            searchApi = actions[1];
         }
         return Result.string(list);
     }
@@ -101,10 +96,20 @@ public class Fengye extends Spider {
 
         if ("config".equals(key)) {
             siteUrl = value;
+            changeApi();
             return Result.notify("设置新域名:" + siteUrl);
         }
 
         return "ok";
+    }
+
+    public void changeApi(){
+        String html = OkHttp.string(siteUrl);
+        Elements forms = Jsoup.parse(html).select("form");
+        String[] actions = forms.first().attr("action").split("/");
+        if (actions.length > 1) {
+            searchApi = actions[1];
+        }
     }
 
     @Override
@@ -120,9 +125,11 @@ public class Fengye extends Spider {
             wd = URLEncoder.encode(wd, "UTF-8").replace("+", "%20");
         } catch (Exception ignored) {
         }
+        if (TextUtils.isEmpty(searchApi)) {changeApi();}
         String url = String.format("%s%s/%s----------%s---.html", siteUrl, searchApi, wd, pg);
+        String html = getPage(url, pg);
 
-        Elements divs = Jsoup.parse(OkHttp.string(url)).select("div.module-card-item.module-item");
+        Elements divs = Jsoup.parse(html).select("div.module-card-item.module-item");
 
         List<Vod> list = new ArrayList<>();
 
@@ -216,5 +223,20 @@ public class Fengye extends Spider {
         } catch (Exception e) {
             Notify.show(e.toString());
         }
+    }
+
+    private String getPage(String url, String page) {
+        String html = OkHttp.string(url, header);
+        if (!"1".equals(page)) {
+            return html;
+        }
+
+        Document doc = Jsoup.parse(html);
+        if (!doc.select("div.module-card-item.module-item").isEmpty()) {
+            return html;
+        }
+
+        header.putAll(WebViewUtil.waitForVerification(url));
+        return OkHttp.string(url, header);
     }
 }
