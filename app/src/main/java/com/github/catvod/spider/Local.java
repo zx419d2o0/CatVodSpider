@@ -115,7 +115,7 @@ public class Local extends Spider {
         vod.setVodPic(Image.VIDEO);
         vod.setVodPlayFrom("播放");
         List<String> playUrls = new ArrayList<>();
-        for (File f : files) if (Util.isMedia(f.getName())) playUrls.add(f.getName() + "$" + f.getAbsolutePath());
+        for (File f : files) if (f.isFile() && Util.isMedia(f.getName())) playUrls.add(f.getName() + "$" + f.getAbsolutePath());
         vod.setVodPlayUrl(TextUtils.join("#", playUrls));
         return vod;
     }
@@ -142,7 +142,7 @@ public class Local extends Spider {
         List<Sub> subs = new ArrayList<>();
         for (File f : Path.list(new File(path).getParentFile())) {
             String ext = Util.getExt(f.getName());
-            if (Util.isSub(ext)) subs.add(Sub.create().name(Util.removeExt(f.getName())).ext(ext).url("file://" + f.getAbsolutePath()));
+            if (f.isFile() && Util.isSub(ext)) subs.add(Sub.create().name(Util.removeExt(f.getName())).ext(ext).url("file://" + f.getAbsolutePath()));
         }
         return subs;
     }

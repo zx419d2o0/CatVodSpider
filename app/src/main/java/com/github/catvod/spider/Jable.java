@@ -27,74 +27,97 @@ public class Jable extends Spider {
     private HashMap<String, String> getHeaders() {
         HashMap<String, String> headers = new HashMap<>();
         headers.put("User-Agent", Util.CHROME);
+        headers.put("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8");
+        headers.put("Accept-Language", "zh-TW,zh;q=0.9,en-US;q=0.8,en;q=0.7");
+        headers.put("Referer", siteUrl + "/");
         return headers;
     }
 
     @Override
     public String homeContent(boolean filter) {
-        List<Vod> list = new ArrayList<>();
-        List<Class> classes = new ArrayList<>();
-        Document doc = Jsoup.parse(OkHttp.string(cateUrl, getHeaders()));
-        for (Element element : doc.select("div.img-box > a")) {
-            String typeId = element.attr("href").split("/")[4];
-            String typeName = element.select("div.absolute-center > h4").text();
-            classes.add(new Class(typeId, typeName));
+        Document doc = Jsoup.parse(OkHttp.string(siteUrl, getHeaders()));
+        List<Class> classes = parseClasses(doc);
+        List<Vod> list = parseVods(doc);
+        for (Class item : parseClasses(Jsoup.parse(OkHttp.string(cateUrl, getHeaders())))) {
+            if (!classes.contains(item)) classes.add(item);
         }
-        doc = Jsoup.parse(OkHttp.string(siteUrl, getHeaders()));
-        for (Element element : doc.select("div.video-img-box")) {
-            String pic = element.select("img").attr("data-src");
-            String url = element.select("a").attr("href");
-            String name = element.select("div.detail > h6").text();
-            if (pic.endsWith(".gif") || name.isEmpty()) continue;
-            String id = url.split("/")[4];
-            list.add(new Vod(id, name, pic));
+        if (list.isEmpty() && !classes.isEmpty()) {
+            list = parseVods(Jsoup.parse(OkHttp.string(getCategoryUrl(classes.get(0).getTypeId(), "1"), getHeaders())));
         }
         return Result.string(classes, list);
     }
 
-    @Override
-    public String categoryContent(String tid, String pg, boolean filter, HashMap<String, String> extend) {
+    List<Class> parseClasses(Document doc) {
+        List<Class> classes = new ArrayList<>();
+        for (Element element : doc.select("div.img-box > a, div.horizontal-img-box > a")) {
+            String typeId = getLastPathSegment(element.attr("href"));
+            String typeName = element.select("div.absolute-center > h4").text();
+            if (typeName.isEmpty()) typeName = element.select("div.detail > h6.title").text();
+            if (typeId.isEmpty() || typeName.isEmpty()) continue;
+            classes.add(new Class(typeId, typeName));
+        }
+        return classes;
+    }
+
+    List<Vod> parseVods(Document doc) {
         List<Vod> list = new ArrayList<>();
-        String target = cateUrl + tid + "/?mode=async&function=get_block&block_id=list_videos_common_videos_list&sort_by=post_date&from=" + String.format(Locale.getDefault(), "%02d", Integer.parseInt(pg)) + "&_=" + System.currentTimeMillis();
-        Document doc = Jsoup.parse(OkHttp.string(target, getHeaders()));
         for (Element element : doc.select("div.video-img-box")) {
             String pic = element.select("img").attr("data-src");
+            if (pic.isEmpty()) pic = element.select("img").attr("src");
             String url = element.select("a").attr("href");
             String name = element.select("div.detail > h6").text();
-            String id = url.split("/")[4];
+            String id = getLastPathSegment(url);
+            if (pic.endsWith(".gif") || name.isEmpty() || id.isEmpty()) continue;
             list.add(new Vod(id, name, pic));
         }
-        return Result.string(list);
+        return list;
+    }
+
+    String getLastPathSegment(String url) {
+        int query = url.indexOf('?');
+        if (query >= 0) url = url.substring(0, query);
+        String[] segments = url.split("/");
+        for (int i = segments.length - 1; i >= 0; i--) {
+            if (!segments[i].isEmpty()) return segments[i];
+        }
+        return "";
+    }
+
+    @Override
+    public String categoryContent(String tid, String pg, boolean filter, HashMap<String, String> extend) {
+        Document doc = Jsoup.parse(OkHttp.string(getCategoryUrl(tid, pg), getHeaders()));
+        return Result.string(parseVods(doc));
+    }
+
+    private String getCategoryUrl(String tid, String pg) {
+        return cateUrl + tid + "/?mode=async&function=get_block&block_id=list_videos_common_videos_list&sort_by=post_date&from=" + String.format(Locale.getDefault(), "%02d", Integer.parseInt(pg)) + "&_=" + System.currentTimeMillis();
     }
 
     @Override
     public String detailContent(List<String> ids) {
         Document doc = Jsoup.parse(OkHttp.string(detailUrl.concat(ids.get(0)).concat("/"), getHeaders()));
+        return Result.string(parseDetail(doc, ids.get(0)));
+    }
+
+    Vod parseDetail(Document doc, String id) {
         String name = doc.select("meta[property=og:title]").attr("content");
         String pic = doc.select("meta[property=og:image]").attr("content");
-        String year = doc.select("span.inactive-color").get(0).text();
+        Element yearElement = doc.selectFirst("span.inactive-color");
+        String year = yearElement == null ? "" : yearElement.text();
         Vod vod = new Vod();
-        vod.setVodId(ids.get(0));
+        vod.setVodId(id);
         vod.setVodPic(pic);
         vod.setVodYear(year.replace("上市於 ", ""));
         vod.setVodName(name);
         vod.setVodPlayFrom("Jable");
         vod.setVodPlayUrl("播放$" + Util.getVar(doc.html(), "hlsUrl"));
-        return Result.string(vod);
+        return vod;
     }
 
     @Override
     public String searchContent(String key, boolean quick) {
-        List<Vod> list = new ArrayList<>();
         Document doc = Jsoup.parse(OkHttp.string(searchUrl.concat(URLEncoder.encode(key)).concat("/"), getHeaders()));
-        for (Element element : doc.select("div.video-img-box")) {
-            String pic = element.select("img").attr("data-src");
-            String url = element.select("a").attr("href");
-            String name = element.select("div.detail > h6").text();
-            String id = url.split("/")[4];
-            list.add(new Vod(id, name, pic));
-        }
-        return Result.string(list);
+        return Result.string(parseVods(doc));
     }
 
     @Override

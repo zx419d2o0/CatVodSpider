@@ -1,7 +1,10 @@
 @echo off
+setlocal
 
-call "%~dp0\gradlew" assembleRelease --no-daemon
+if "%~1"=="" (
+    call "%~dp0gradlew.bat" spiderJar --no-daemon
+) else (
+    call "%~dp0gradlew.bat" spiderJar "-PspiderOutput=%~f1" --no-daemon
+)
 
-call "%~dp0\jar\genJar.bat" %1
-
-exit
+exit /b %errorlevel%

@@ -37,6 +37,20 @@ public class PTT extends Spider {
         return header;
     }
 
+    List<Vod> parseVods(Document doc) {
+        List<Vod> list = new ArrayList<>();
+        for (Element div : doc.select("div.card > div.embed-responsive")) {
+            Element a = div.select("a").get(0);
+            Element img = a.select("img").get(0);
+            String remark = div.select("span.badge.badge-success").get(0).text();
+            String src = img.attr("src");
+            String vodPic = src.startsWith("http") ? src : url + (src.startsWith("/") ? src.substring(1) : src);
+            String name = img.attr("alt");
+            if (!TextUtils.isEmpty(name)) list.add(new Vod(a.attr("href").substring(1), name, vodPic, remark));
+        }
+        return list;
+    }
+
     @Override
     public void init(Context context, String extend) {
         this.extend = extend;
@@ -59,16 +73,7 @@ public class PTT extends Spider {
         if (!TextUtils.isEmpty(extend.get("sort"))) builder.appendQueryParameter("sort", extend.get("sort"));
         builder.appendQueryParameter("page", pg);
         Document doc = Jsoup.parse(OkHttp.string(builder.toString(), getHeader()));
-        List<Vod> list = new ArrayList<>();
-        for (Element div : doc.select("div.card > div.embed-responsive")) {
-            Element a = div.select("a").get(0);
-            Element img = a.select("img").get(0);
-            String remark = div.select("span.badge.badge-success").get(0).text();
-            String vodPic = img.attr("src").startsWith("http") ? img.attr("src") : url + img.attr("src");
-            String name = img.attr("alt");
-            if (!TextUtils.isEmpty(name)) list.add(new Vod(a.attr("href").substring(3), name, vodPic, remark));
-        }
-        return Result.string(list);
+        return Result.string(parseVods(doc));
     }
 
     @Override
@@ -94,7 +99,7 @@ public class PTT extends Spider {
 
     @Override
     public String playerContent(String flag, String id, List<String> vipFlags) {
-        Matcher m = Pattern.compile("contentUrl\":\"(.*?)\"").matcher(OkHttp.string(url + id));
+        Matcher m = Pattern.compile("contentUrl\":\"(.*?)\"").matcher(OkHttp.string(url + id, getHeader()));
         if (m.find()) return Result.get().url(m.group(1).replace("\\", "")).string();
         return Result.error("");
     }
@@ -107,15 +112,6 @@ public class PTT extends Spider {
     @Override
     public String searchContent(String key, boolean quick, String pg) {
         Document doc = Jsoup.parse(OkHttp.string(url + String.format("q/%s?page=%s", key, pg), getHeader()));
-        List<Vod> list = new ArrayList<>();
-        for (Element div : doc.select("div.card > div.embed-responsive")) {
-            Element a = div.select("a").get(0);
-            Element img = a.select("img").get(0);
-            String remark = div.select("span.badge.badge-success").get(0).text();
-            String vodPic = img.attr("src").startsWith("http") ? img.attr("src") : url + img.attr("src");
-            String name = img.attr("alt");
-            if (!TextUtils.isEmpty(name)) list.add(new Vod(a.attr("href").substring(3), name, vodPic, remark));
-        }
-        return Result.string(list);
+        return Result.string(parseVods(doc));
     }
 }

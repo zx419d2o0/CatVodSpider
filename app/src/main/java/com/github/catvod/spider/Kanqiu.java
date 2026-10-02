@@ -15,8 +15,8 @@ import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 import org.jsoup.Jsoup;
+import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
-import org.jsoup.select.Elements;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -29,7 +29,8 @@ import java.util.Map;
  */
 public class Kanqiu extends Spider {
 
-    private static String siteUrl = "http://www.88kanqiu.tw";
+    private static String siteUrl = "https://www.88kanqiu.tw";
+    private static final String DEFAULT_PIC = "https://pic.imgdb.cn/item/657673d6c458853aeff94ab9.jpg";
 
     private Map<String, String> getHeader() {
         Map<String, String> header = new HashMap<>();
@@ -57,33 +58,66 @@ public class Kanqiu extends Spider {
     public String categoryContent(String tid, String pg, boolean filter, HashMap<String, String> extend) {
         String cateId = extend.get("cateId") == null ? tid : extend.get("cateId");
         String urlPath = cateId == null || cateId.isEmpty() ? "" : String.format("/match/%s/live", cateId);
-        Elements lis = Jsoup.parse(OkHttp.string(siteUrl + urlPath, getHeader())).select(".list-group-item");
+        Document doc = Jsoup.parse(OkHttp.string(siteUrl + urlPath, getHeader()));
+        List<Vod> list = parseVods(doc);
+        return Result.get().page(1, 1, 0, list.size()).vod(list).string();
+    }
+
+    List<Vod> parseVods(Document doc) {
         List<Vod> list = new ArrayList<>();
-        for (Element li : lis) {
-            String vid = siteUrl + li.select(".btn.btn-primary").attr("href");
+        for (Element li : doc.select(".list-group-item.group-game-item")) {
+            Element link = li.selectFirst(".pay-btn > a[href]");
+            if (link == null) continue;
+            String vid = resolveUrl(link.attr("href"));
             String name = li.select(".row.d-none").text();
             if (name.isEmpty()) name = li.text();
-            String pic = li.select(".col-xs-1").eq(0).select("img").attr("src");
-            if (pic.isEmpty()) pic = "https://pic.imgdb.cn/item/657673d6c458853aeff94ab9.jpg";
-            if (!pic.startsWith("http")) pic = siteUrl + pic;
-            String remark = li.select(".btn.btn-primary").text();
+            Element image = li.selectFirst(".col-xs-1 img");
+            String pic = image == null ? "" : image.attr("data-src").trim();
+            if (pic.isEmpty() && image != null) pic = image.attr("src").trim();
+            pic = pic.isEmpty() ? DEFAULT_PIC : resolveUrl(pic);
+            String remark = link.text();
             list.add(new Vod(vid, name, pic, remark));
         }
-        return Result.get().page(1, 1, 0, lis.size()).vod(list).string();
+        return list;
+    }
+
+    private String resolveUrl(String url) {
+        if (url.startsWith("http://") || url.startsWith("https://")) return url;
+        if (url.startsWith("//")) return "https:" + url;
+        String base = siteUrl.endsWith("/") ? siteUrl.substring(0, siteUrl.length() - 1) : siteUrl;
+        return base + (url.startsWith("/") ? "" : "/") + url;
+    }
+
+    String getSourceUrl(String id) {
+        return id.endsWith("/play") ? id.substring(0, id.length() - 5) + "/source" : id + "/source";
+    }
+
+    String extractPayload(String content) {
+        try {
+            String data = new JSONObject(content).optString("data");
+            return data.length() > 8 ? data.substring(6, data.length() - 2) : "";
+        } catch (JSONException e) {
+            return "";
+        }
     }
 
     @Override
-    public String detailContent(List<String> ids) throws JSONException {
+    public String detailContent(List<String> ids) {
         if (ids.get(0).equals(siteUrl)) return Result.error("比赛尚未开始");
-        String content = OkHttp.string(ids.get(0) + "-url", getHeader());
-        String result = new JSONObject(content).optString("data");
-        result = result.substring(6);
-        result = result.substring(0, result.length() - 2);
-        String json = new String(Base64.decode(result, Base64.DEFAULT));
-        JSONArray linksArray = new JSONObject(json).getJSONArray("links");
+        String content = OkHttp.string(getSourceUrl(ids.get(0)), getHeader());
+        String result = extractPayload(content);
+        if (result.isEmpty()) return Result.error("比赛尚未开始");
+        JSONArray linksArray;
+        try {
+            String json = new String(Base64.decode(result, Base64.DEFAULT));
+            linksArray = new JSONObject(json).getJSONArray("links");
+        } catch (IllegalArgumentException | JSONException e) {
+            return Result.error("比赛尚未开始");
+        }
         List<String> vodItems = new ArrayList<>();
         for (int i = 0; i < linksArray.length(); i++) {
-            JSONObject linkObject = linksArray.getJSONObject(i);
+            JSONObject linkObject = linksArray.optJSONObject(i);
+            if (linkObject == null) continue;
             String text = linkObject.optString("name");
             String href = linkObject.optString("url").replace("#", "***");
             vodItems.add(text + "$" + href);
